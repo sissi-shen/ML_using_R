@@ -1,0 +1,87 @@
+# CODEBOOK 
+
+## Data: Students Adaptability Level in Online Education
+
+
+## Variables 
+
+
+### Outcome variable
+
+- Adaptivity LeveL : how well a student can adapt to online education
+
+	* Low
+	* Moderate
+	* High
+	
+
+### Predictor variables  
+
+- Gender 
+
+- Age
+
+- Education Level: education institution level
+	* School
+	* University
+	* Other
+
+- Institution type: education institution type 
+
+	* Non government
+	* government
+
+- IT Student: studying as IT student or not
+
+	* Yes
+	* No
+
+- Location: Is student location in town?
+
+	* Yes
+	* No
+
+- Load shedding:
+
+	* Low
+	* High
+
+- Financial condition: financial condition of family
+
+	* Mid
+	* Poor
+	* Other (Rich)
+
+- Internet type: internet type used mostly in device
+
+	* Mobile Data
+	* Wifi
+
+- Network type: network connectivity type
+
+	* 1: Completely agree
+	* 2: Agree
+	* 3: Neither agree not disagree
+	* 4: Disagree
+	* 5: Completely disagree
+	
+- Class duration: daily class duration (hours)
+
+	* 1-3
+	* 3-6
+	* Other (0)
+
+- Self LMS: Institution's own Learning Management System (LMS) availability 
+
+	* Yes
+	* No
+
+- Device: device used mostly in class
+
+	* Mobile
+	* Computer
+	* Other (Tab)
+
+
+
+

@@ -1,0 +1,171 @@
+---
+title: "PSTAT131_final_project"
+author: "Sissi Shen"
+output:
+    html_document:
+      toc: true
+      toc_float: true
+      code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
+```
+
+## Introduction
+
+The purpose of this project is to build a machine learning model that can predict how well a student can adapt online education.
+
+### Why is this model important?
+Ever since the outbreak of COVID-19, institutions around the world have started adopting online teaching. However, not every student can well adopt this new form of education. Therefore, it's crucial for schools and educators to make adjustments to their form of teaching based on the overall adaptability of their students. One way of achieving this is through building a machine learning model that can predict how well the students can perform in online education based on their characteristics. 
+
+### Table of Contents
+This report starts with an Exploratory Data Analysis (EDA) section that tidies raw data and explores whether there are any patterns among the predictor variables. \
+
+It then moves on to discussing data splitting and cross-validation. This is an important step for the actual model-building that comes later.\
+
+The third part includes the fittings of various models. The result of each model is analyzed and discussed in the model selection and performance section. \
+
+In the end, after choosing the best model for our data, it concludes the report by interpreting the outcomes of the models it fits. 
+
+
+### Loading data and packages
+Loading the packages:\
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(tidymodels)
+library(tidyr)
+library(dplyr)
+library(plyr)
+library(ggpubr)
+library(janitor)
+library(glmnet)
+library(rpart.plot)
+library(vip)
+library(randomForest)
+library(xgboost)
+tidymodels_prefer()
+```
+
+Loading the data set:\
+```{r}
+adapt <- read.csv("students_adaptability.csv")
+```
+
+## Exploratory Data Analysis
+
+Here in this section, we are going to explore raw data by tidying it to build predictive models later and perform some initial investigations on it to discover patterns or to spot any anomalies.\
+
+### Data Cleaning
+Before exploring the data set, let's first to do some data cleaning:\
+  · Clean names\
+```{r}
+adapt <- adapt %>%
+  clean_names()
+```
+ 
+  · Change the variables to factors: (since all of our variables are categorical, we need to convert all of them to factors)\
+```{r}
+adapt <- adapt %>%
+  dplyr::mutate(gender = factor(gender, levels = c("Boy", "Girl")), 
+         age = factor(age, levels = c("1-5", "6-10", "11-15", "16-20", "21-25", "26-30")), 
+         education_level = factor(education_level, levels = c("School", "College", "University")),
+         institution_type = factor(institution_type, levels = c("Government", "Non Government")),
+         it_student = factor(it_student, levels = c("Yes", "No")), 
+         location = factor(location, levels = c("Yes", "No")), 
+         load_shedding = factor(load_shedding, levels = c("Low", "High")), 
+         financial_condition = factor(financial_condition, levels = c("Poor", "Mid", "Rich")), 
+         internet_type = factor(internet_type, levels = c("Mobile Data", "Wifi")), 
+         network_type = factor(network_type, levels = c("2G", "3G", "4G")), 
+         class_duration = factor(class_duration, levels = c("0", "1-3", "3-6")), 
+         self_lms = factor(self_lms, levels = c("Yes", "No")), 
+         device = factor(device, levels = c("Mobile", "Computer", "Tab")), 
+         adaptivity_level = factor(adaptivity_level, levels = c("Low", "Moderate", "High")))
+```
+
+Now we've finished cleaning raw data, it's time to do some exploratory data analysis!\
+
+### Data Visualizations and Analysis
+
+#### Summary table
+First, let's take a look at the summary of our data set:\
+
+```{r}
+adapt %>%
+  summary()
+```
+There are several things that we need to pay attention to: 
+  (1) The number of boys involved in data collection is more than the number of girls, so this might affect our gender analysis. 
+  (2) We have much more data for students aged between 11-25 comparing to younger kids and older students, so our models later might not do good job predicting the adaptivity level for students whose age are between 1-10 and 26-30. 
+  (3) There are way more non government institutions than government ones. Is this related to students' financial conditions? 
+  (4) Our outcome variable, `adaptivity_level` is very imbalanced, so we need to stratify the samples when splitting the data.\
+
+#### Age
+Moving on, we generally believe that students who are older would perform better in online education, so is that really the case for our data? \
+
+```{r}
+p1 <- ggplot(adapt, aes(x=age, fill = adaptivity_level, color = adaptivity_level)) + 
+           geom_bar(position = "dodge", alpha=0.5) + 
+          theme(legend.position = "top")
+p1 + labs(title = "Age vs. Adaptivity Level for Students", 
+          x = "Age", y = "Number of Students")
+```
+Most students adapt to online education moderately, and only a tiny amount of them can adapt to it without any barriers (high adaptivity level). Students who are between 21-25 years old seem to adapt to online education the best as the number of students having a high adaptivity level is the highest. Probably institutions should also reconsider giving online education to students aged 6-10, 16-20, and 26-30 since the number of them having the low adaptivity level outnumbered the moderate and high adaptivity levels.\
+
+#### Gender
+So does gender have any effect on the adaptivity level?\
+
+```{r}
+adapt_gender <- adapt %>%
+  group_by(age) %>%
+  select(age, adaptivity_level, gender) %>%
+  transform(freq = ave(seq(nrow(adapt_gender)), age, FUN=length))
+```
+
+```{r}
+adapt_gender %>%
+  ggballoonplot(x = "age", y = "adaptivity_level", size = "freq", 
+                fill = "freq", facet.by = "gender", 
+                ggtheme = theme_bw()) + 
+    scale_fill_viridis_c(option = "C")
+```
+
+```{r}
+adapt %>%
+  ggplot(aes(x=age, fill = adaptivity_level, color = adaptivity_level)) + 
+  geom_bar() + 
+  facet_grid(~gender)
+```
+It seems like the number of boys who have a high adaptivity level is more than that of the girls, but since there are more boys than girls, we can't arrive to definite conclusion for this category.\
+
+#### Financial Condition
+
+One argument we heard for online education is that students who are from families that are not very well-off tend to have a lower adaptivity level, for when they are home, they tend to be distracted by family duties, and they might not have good tech equipment required for online education such as stable internet or reliable network\
+
+So is financial condition related to the types of internet and network that students used?\
+
+```{r}
+adapt %>%
+  ggplot(aes(x=financial_condition, fill= network_type, color = network_type)) + 
+  geom_bar() +
+  facet_grid(~internet_type)
+```
+We can see that students who are categorized as "poor" in `financial_condition` use more mobile data than Wifi, which is a less stable way when taking online classes. They also tend to rely on 3G `network_type`, which is worse and slower than "4G". Among the students from "mid" `financial_condition` who use mobile data, they also tend to have a 3G network compared to "mid" students who use Wifi. In comparison, the number of students who are "rich" and use Wifi is more than the number of "rich" students using mobile data.\   
+
+Therefore, we've seen that `financial_condition` has an effect on `internet_type` and `network_type`. Then, let's see if `financial_condition` affects the `adaptivity_level`.\
+
+```{r}
+adapt_fc %>%
+  ggplot(aes(x=financial_condition, fill = adaptivity_level)) + 
+  geom_bar(position = position_dodge()) + 
+  geom_text(stat = 'count', aes(label=after_stat(count)), vjust=1.6, color="white", position = position_dodge(0.9), size=3.5)+
+  theme_minimal()
+```
+As we can tell, students who are "poor" have a higher rate of having a low adaptivity level, students who are "mid" have a higher rate of having a moderate adaptivity level, and students who are "rich" have the highest rate of having a high adaptivity level. In fact, although the total number of "rich" students is the lowest among all students surveyed, this group yielded the highest number of students who have a high adaptivity level.\
+
+### Conclusion
+From all the visualizations of our data, we can see that `age` and `financial_condition` are the two strongest predictor variables among the variables we tested. Between them, `financial_condition` is also related to `internet_type` and `network_type`. Therefore, in the later model building stage, we need to consider the interaction effect between these variables.\ 
+
+Also, since all the variables are categorical, it's harder to finish the EDA compared to numeric variables. Thus, the forms of graphs might be onefold.\ 
