@@ -5,7 +5,7 @@ output:
     html_document:
       toc: true
       toc_float: true
-      code_folding: show
+      code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
@@ -39,6 +39,8 @@ library(tidymodels)
 library(tidyr)
 library(dplyr)
 library(plyr)
+install.packages("scale")
+library(scales)
 library(ggpubr)
 library(janitor)
 library(glmnet)
@@ -46,6 +48,11 @@ library(rpart.plot)
 library(vip)
 library(randomForest)
 library(xgboost)
+library(discrim)
+library(poissonreg)
+library(corrr)
+library(klaR)
+library(kknn)
 tidymodels_prefer()
 ```
 
@@ -120,7 +127,9 @@ So does gender have any effect on the adaptivity level?\
 ```{r}
 adapt_gender <- adapt %>%
   group_by(age) %>%
-  select(age, adaptivity_level, gender) %>%
+  select(age, adaptivity_level, gender)
+
+adapt_gender <- adapt_gender %>%
   transform(freq = ave(seq(nrow(adapt_gender)), age, FUN=length))
 ```
 
@@ -138,7 +147,42 @@ adapt %>%
   geom_bar() + 
   facet_grid(~gender)
 ```
-It seems like the number of boys who have a high adaptivity level is more than that of the girls, but since there are more boys than girls, we can't arrive to definite conclusion for this category.\
+It seems like the number of boys who have a high adaptivity level is more than that of the girls, so `gender` can be a relatively important predictor. However, since there are more boys than girls, we can't arrive to definite conclusion for this category.\
+
+#### Education variables
+
+Although online-education is a new form, at the end, it's still education, and vairables related to the quality of education that each student receives is important predictor for our project.\
+
+So let's first take a look at whether `education_level` and `institution_type` is related to `adaptivity_level`.\
+```{r}
+adapt %>%
+  ggplot(aes(x=education_level, group=institution_type)) + 
+  geom_bar(aes(y=..prop.., fill = factor(..x..)), stat = 'count') +
+  geom_text(stat = "count", aes(label=scales::percent(..prop..), y=..prop..), vjust=1.6, color="white", position = position_dodge(0.9), size=3.5)+
+  labs(y = "Percent", fill = "adaptivity_level") +
+  facet_grid(~institution_type) + 
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal()
+```
+As we see here, in government institutions, the higher the level of education, the better the adaptivity level. However, in non-government institutions, students who are in school mostly show a low adaptivity level, and in contrast to the increasing pattern from government institutions, students from non-government colleges also do not perform well in online-education. This indicates that institution type may be an important variable in our model.\
+
+Then what about the effect of having an learning management system (`self_lms`) and a longer `class_duration` on students' `adaptivity_level`?\
+```{r}
+adapt %>%
+  ggplot(aes(x=class_duration, fill = adaptivity_level, color = adaptivity_level)) + 
+  geom_bar(position = "dodge", alpha=0.5) + 
+  theme(legend.position = "top") + 
+  labs(x = "Class Duration", y = "Number of Students")
+```
+The plot shows that students who don't have any class (`class_duration` = 0) have the highest rate of having a low adaptivity level. This is probably self-explanatory since students who do not adapt well to online education may choose to drop all the classes and take a gap semester. Students whose class duration is within 1-3 hours and within 3-6 hours adapt to online education moderately. Therefore, we can say that `class_duration`, especially for category 0, may be an important indicator for `adaptivity_level`.\
+
+```{r}
+adapt %>%
+  ggplot(aes(x=self_lms, fill = adaptivity_level, color = adaptivity_level)) + 
+  geom_bar(position = "dodge", alpha=0.5) + 
+  theme(legend.position = "top")
+```
+Since the number of institutions that have an LMS and which haven't is significantly imbalanced, we can't really see the pattern here.\
 
 #### Financial Condition
 
@@ -157,7 +201,7 @@ We can see that students who are categorized as "poor" in `financial_condition` 
 Therefore, we've seen that `financial_condition` has an effect on `internet_type` and `network_type`. Then, let's see if `financial_condition` affects the `adaptivity_level`.\
 
 ```{r}
-adapt_fc %>%
+adapt %>%
   ggplot(aes(x=financial_condition, fill = adaptivity_level)) + 
   geom_bar(position = position_dodge()) + 
   geom_text(stat = 'count', aes(label=after_stat(count)), vjust=1.6, color="white", position = position_dodge(0.9), size=3.5)+
@@ -169,3 +213,258 @@ As we can tell, students who are "poor" have a higher rate of having a low adapt
 From all the visualizations of our data, we can see that `age` and `financial_condition` are the two strongest predictor variables among the variables we tested. Between them, `financial_condition` is also related to `internet_type` and `network_type`. Therefore, in the later model building stage, we need to consider the interaction effect between these variables.\ 
 
 Also, since all the variables are categorical, it's harder to finish the EDA compared to numeric variables. Thus, the forms of graphs might be onefold.\ 
+
+## Model Building
+Now it's time for building our models!\
+
+### Splitting and folding the data
+Since we have known from the summary table that the outcome variable `adaptivity_level` is imbalanced, we should stratify the samples and perform k-fold cross validation on the training set.\
+```{r}
+set.seed(1029)
+adapt_split <- initial_split(adapt, prop = 0.7, strata = adaptivity_level)
+adapt_train <- training(adapt_split)
+adapt_test <- testing(adapt_split)
+adapt_fold <- vfold_cv(adapt_train, v=10, strata = adaptivity_level)
+```
+
+### Recipe Building
+Now let's build our recipe!\
+```{r}
+adapt_recipe <- recipe(adaptivity_level ~ gender + age + education_level + institution_type + it_student + location + load_shedding + financial_condition + internet_type + network_type + class_duration + self_lms + device, adapt_train) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_center(all_predictors()) %>%
+  step_center(all_predictors())
+```
+In order to save time on knitting the document, we need to save the results.\
+```{r}
+save(adapt_fold, adapt_recipe, adapt_train, adapt_test, file = "model_setup.rda")
+```
+
+### Models
+Since this project is a multiclass classification problem, we cannot use binary classification models, where are Logistic Regression, Linear Discriminant Analysis, and Quadratic Discriminant Analysis, to fit the data. Thus, the models we'll be trying out are Decision Tree, Random Forest, Boost, and KNN models. For these four models, we need to set up the tuning grid, tunning the model, and selecting the best-performing model.\
+
+To save the space and time when knitting the report, all models were built in the R script. So here in the report, we'll only analyze the results of each model.\
+
+#### Model results
+First, let's plot out the results of each model/\
+
+Decision Tree Model:\
+```{r}
+load("dt_tune_res.rda")
+autoplot(dt_tune_res)
+```
+Decision tree model achieved an roc-auc close to 0.9 when the cost-complexity parameter is less than 0.01, which shows that it performs better with a smaller complexity penalty.\
+
+Random Forest Tree model:\
+```{r}
+load("rf_tune_res.rda")
+autoplot(rf_tune_res)
+```
+In random forest tree models, the greater the number of trees and randomly selected predictors, the better the performance of the model is. However, the performance seems to drop with an increasing number of minimal node size. As we can see, starting from minimal node size 7, the best roc-auc starts dropping when the minimal node size increases.\
+
+Boosted Tree model:\
+```{r}
+load("boost_tune_res.rda")
+autoplot(boost_tune_res)
+```
+The boost tree models clearly indicate that tuning the number of trees too high will lead to overfitting, which results in a lower roc-auc. When having a small minimal node size, the roc-auc is close to 1, meaning that it has a great measure of separability. \
+
+K-Nearest Neighbor model:\
+```{r}
+load("knn_tune_res.rda")
+autoplot(knn_tune_res)
+```
+The performance of the KNN model achieves the best roc-auc with 5 nearest neighbors, and the more neighbors it has, the less the roc-auc is.\
+
+#### Selecting the best model
+Now let's take a look at which parameters have the best result in each model and use it to finalize the workflow.\
+
+Decision Tree model:\
+```{r}
+dt_result <- collect_metrics(dt_tune_res) %>%
+  dplyr::arrange(desc(mean))
+dt_result
+```
+
+```{r}
+set.seed(1029)
+dt_best_mod <- select_best(dt_tune_res, metric = "roc_auc")
+dt_tree_final <- finalize_workflow(decision_tree_wf, dt_best_mod)
+dt_tree_final_fit <- fit(dt_tree_final, data = adapt_train) %>%
+  extract_fit_engine() %>%
+  rpart.plot()
+```
+The best performance model in our decision tree models achieves an roc_auc of 0.864.\
+
+Random Forest Tree model:\
+```{r}
+rf_result <- collect_metrics(rf_tune_res) %>%
+  dplyr::arrange(desc(mean))
+rf_result
+```
+The best performance model in our random forest tree models achieves an roc-auc of 0.963, much better than the decision tree model.\
+```{r}
+set.seed(1029)
+rf_best_mod <- select_best(rf_tune_res, metric = "roc_auc")
+rf_final <- finalize_workflow(rf_wf, rf_best_mod)
+rf_final_fit <- fit(rf_final, data = adapt_train)
+rf_final_fit %>%
+  pull_workflow_fit() %>%
+  vip()
+```
+From the vip plot, we can see that the most important predictor is `institution_type`, which corroborated our earlier assumption in the EDA section. `gender`, especially whether a student is a girl, is also a vital predictor here, and we have also tested this out in the EDA. The top seven important predicators have all been discussed in the exploratory data analysis part, which indicates that the data analysis we did earlier is pretty useful!\
+
+Boosted Tree model:\
+```{r}
+bt_result <- collect_metrics(boost_tune_res) %>%
+  dplyr::arrange(desc(mean))
+bt_result
+```
+The best performance model in our boosted tree models achieves an roc_auc pf 0.97, which is better than the best models of decision tree and random forest.\
+
+```{r}
+set.seed(1029)
+boost_best_mod <- select_best(boost_tune_res, metric = "roc_auc")
+boost_final_wf <- finalize_workflow(boost_wf, boost_best_mod)
+boost_final_fit <- fit(boost_final_wf, data = adapt_train)
+```
+
+KNN model:\
+```{r}
+knn_result <- collect_metrics(knn_tune_res) %>%
+  dplyr::arrange(desc(mean))
+knn_result
+```
+The best performance model in the KNN models achieves the roc-auc of 0.925, which is better than the decision tree but worse than random forest and boosted tree.\
+
+#### Model Comparision
+After selecting the best parameters out of each model, let's now compare them and choose the best one out of them to be our final model!\
+
+```{r}
+df_res = rbind(dt_result[1, c("mean", "std_err")], rf_result[1, c("mean", "std_err")], 
+               bt_result[1, c("mean", "std_err")], knn_result[1, c("mean", "std_err")])
+models <- c("Decision Tree", "Random Forest", "Boosted Tree", "KNN")
+df_res = tibble(Models = models, df_res)
+df_res %>%
+  dplyr::arrange(desc(mean))
+```
+We can see from the comparison table that our boosted tree model achieves the highest roc_auc and the lowest standard error! So boosted tree model is the final model that we'll fit to our testing set!\
+Let's try visualizing the result!\
+```{r}
+adapt_result <- ggplot(df_res, aes(x = Models, y = mean)) + 
+  geom_segment(aes(x = Models, xend = Models, y = min(mean), yend = max(mean)), 
+               linetype = "dashed", size=0.5) +
+  geom_point(fill = "#FB4F14", col = "#FB4F14", size=10) +
+  labs(title = "Performance of Our Models") + 
+  theme_minimal() + 
+  coord_flip()
+adapt_result
+```
+
+### Fitting the final model on the testing set
+We've now picked the best performance model of them all, so let's fit it on the testing set.\
+
+#### ROC_AUC
+```{r}
+adapt_predicted <- augment(boost_final_fit, new_data = adapt_test) %>%
+  select(adaptivity_level, starts_with(".pred")) %>%
+  roc_auc(adaptivity_level, .pred_Low | .pred_Moderate | .pred_High)
+adapt_predicted
+```
+Nice! The roc_auc of the model on the testing set is 0.958, which is an excellent performance!\
+
+#### ROC Curve
+Let's take a look at the roc plot as well.\
+
+```{r}
+adapt_roc_plot <- augment(boost_final_fit, new_data = adapt_test) %>%
+  roc_curve(adaptivity_level, .pred_Low | .pred_Moderate | .pred_High) %>%
+  autoplot()
+adapt_roc_plot
+```
+Our roc curve follows a nearly perfect trajectory that is up and to the left.\
+
+#### Confusion matrix
+What about a confusion matrix?\
+```{r}
+adapt_conf_mat <- augment(boost_final_fit, new_data = adapt_test) %>%
+  conf_mat(adaptivity_level, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+adapt_conf_mat
+```
+As we can see from the confusion matrix, the model is best at predicting the moderate `adaptivity_level`. This is because most students have a moderate `adaptivity_level`, so the model has more data of this category to train with. Except for the moderate level, it still did a pretty good job with low adaptivity. In comparison, it did not do very well with predicting high adaptivity, since the number of students who have a high `adaptivity_level` is the least.\
+
+#### Example Predictions
+We've seen from the metrics that our model performs very good on our testing set, but isn't it going to be more direct if we can test it out with specific student examples to see whether the prediction is correct?\
+
+A student with low `adaptivity_level`:\
+```{r}
+adapt_eg1 <- data.frame(
+  gender = "Girl", 
+  age = "11-15",
+  education_level = "School", 
+  institution_type = "Government", 
+  it_student = "No", 
+  location = "Yes", 
+  load_shedding = "Low", 
+  financial_condition = "Mid", 
+  internet_type = "Wifi", 
+  network_type = "3G", 
+  class_duration = "1-3", 
+  self_lms = "No", 
+  device = "Mobile"
+)
+predict(boost_final_fit, adapt_eg1, type = "class")
+```
+The prediction is correct for a low `adaptivity_level`!\
+
+A student with moderate `adaptivity_level`:\
+```{r}
+adapt_eg2 <- data.frame(
+  gender = "Boy", 
+  age = "21-25",
+  education_level = "University", 
+  institution_type = "Non Government", 
+  it_student = "No", 
+  location = "Yes", 
+  load_shedding = "Low", 
+  financial_condition = "Mid", 
+  internet_type = "Wifi", 
+  network_type = "4G", 
+  class_duration = "3-6", 
+  self_lms = "No", 
+  device = "Mobile"
+)
+predict(boost_final_fit, adapt_eg2, type = "class")
+```
+The prediction is again correct for a moderate `adaptivity_level`!\
+
+A student with high `adaptivity_level`:\
+```{r}
+adapt_eg3 <- data.frame(
+  gender = "Boy", 
+  age = "21-25",
+  education_level = "University", 
+  institution_type = "Non Government", 
+  it_student = "Yes", 
+  location = "No", 
+  load_shedding = "High", 
+  financial_condition = "Mid", 
+  internet_type = "Mobile Data", 
+  network_type = "3G", 
+  class_duration = "3-6", 
+  self_lms = "Yes", 
+  device = "Mobile"
+)
+predict(boost_final_fit, adapt_eg3, type = "class")
+```
+Congratulations! Our model has correctly predicted the `adaptivity_level` for all three examples!\
+
+## Conclusion
+This project has allowed me to explore machine learning from scratch: choosing a data set, analyzing its patterns, building models and selecting the best performance model based on various metrics, and finally putting it in use to predict the actual outcome.\
+
+In my opinion, the hardest part of my project is doing the exploratory data analysis. Since all of my variables are categorical, the forms of graphs, especially plots that can show multivariate visualization of the relationship(s) between the outcome and select predictors, which I can use to visualize the data and analyze any correlation patterns are very limited. But in the end, I still managed to use bar plots to display the results I needed.\
+
+Looking at the models, the best performance model is my boosted tree model, and the worst one is my decision tree model. This is because gradient boosting gives a prediction model in the form of an ensemble of weak decision tree models, and in this case, when a decision tree is a weak learner, the boosted tree usually outperforms the random forest.\
+
+Overall, this project provided me with a great opportunity to put what I've learned in class into real use and help me practice my machine-learning techniques. This class has opened a gate for me to enter the world of machine learning and, further, deep learning.\
