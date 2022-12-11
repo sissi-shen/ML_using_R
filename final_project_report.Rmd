@@ -39,8 +39,6 @@ library(tidymodels)
 library(tidyr)
 library(dplyr)
 library(plyr)
-install.packages("scale")
-library(scales)
 library(ggpubr)
 library(janitor)
 library(glmnet)
@@ -119,6 +117,7 @@ p1 <- ggplot(adapt, aes(x=age, fill = adaptivity_level, color = adaptivity_level
 p1 + labs(title = "Age vs. Adaptivity Level for Students", 
           x = "Age", y = "Number of Students")
 ```
+\
 Most students adapt to online education moderately, and only a tiny amount of them can adapt to it without any barriers (high adaptivity level). Students who are between 21-25 years old seem to adapt to online education the best as the number of students having a high adaptivity level is the highest. Probably institutions should also reconsider giving online education to students aged 6-10, 16-20, and 26-30 since the number of them having the low adaptivity level outnumbered the moderate and high adaptivity levels.\
 
 #### Gender
@@ -147,6 +146,7 @@ adapt %>%
   geom_bar() + 
   facet_grid(~gender)
 ```
+\
 It seems like the number of boys who have a high adaptivity level is more than that of the girls, so `gender` can be a relatively important predictor. However, since there are more boys than girls, we can't arrive to definite conclusion for this category.\
 
 #### Education variables
@@ -164,6 +164,7 @@ adapt %>%
   scale_y_continuous(labels = scales::percent) +
   theme_minimal()
 ```
+\
 As we see here, in government institutions, the higher the level of education, the better the adaptivity level. However, in non-government institutions, students who are in school mostly show a low adaptivity level, and in contrast to the increasing pattern from government institutions, students from non-government colleges also do not perform well in online-education. This indicates that institution type may be an important variable in our model.\
 
 Then what about the effect of having an learning management system (`self_lms`) and a longer `class_duration` on students' `adaptivity_level`?\
@@ -174,6 +175,7 @@ adapt %>%
   theme(legend.position = "top") + 
   labs(x = "Class Duration", y = "Number of Students")
 ```
+\
 The plot shows that students who don't have any class (`class_duration` = 0) have the highest rate of having a low adaptivity level. This is probably self-explanatory since students who do not adapt well to online education may choose to drop all the classes and take a gap semester. Students whose class duration is within 1-3 hours and within 3-6 hours adapt to online education moderately. Therefore, we can say that `class_duration`, especially for category 0, may be an important indicator for `adaptivity_level`.\
 
 ```{r}
@@ -182,6 +184,7 @@ adapt %>%
   geom_bar(position = "dodge", alpha=0.5) + 
   theme(legend.position = "top")
 ```
+\
 Since the number of institutions that have an LMS and which haven't is significantly imbalanced, we can't really see the pattern here.\
 
 #### Financial Condition
@@ -196,6 +199,7 @@ adapt %>%
   geom_bar() +
   facet_grid(~internet_type)
 ```
+\
 We can see that students who are categorized as "poor" in `financial_condition` use more mobile data than Wifi, which is a less stable way when taking online classes. They also tend to rely on 3G `network_type`, which is worse and slower than "4G". Among the students from "mid" `financial_condition` who use mobile data, they also tend to have a 3G network compared to "mid" students who use Wifi. In comparison, the number of students who are "rich" and use Wifi is more than the number of "rich" students using mobile data.\   
 
 Therefore, we've seen that `financial_condition` has an effect on `internet_type` and `network_type`. Then, let's see if `financial_condition` affects the `adaptivity_level`.\
@@ -207,6 +211,7 @@ adapt %>%
   geom_text(stat = 'count', aes(label=after_stat(count)), vjust=1.6, color="white", position = position_dodge(0.9), size=3.5)+
   theme_minimal()
 ```
+\
 As we can tell, students who are "poor" have a higher rate of having a low adaptivity level, students who are "mid" have a higher rate of having a moderate adaptivity level, and students who are "rich" have the highest rate of having a high adaptivity level. In fact, although the total number of "rich" students is the lowest among all students surveyed, this group yielded the highest number of students who have a high adaptivity level.\
 
 ### Conclusion
@@ -253,6 +258,7 @@ Decision Tree Model:\
 load("dt_tune_res.rda")
 autoplot(dt_tune_res)
 ```
+\
 Decision tree model achieved an roc-auc close to 0.9 when the cost-complexity parameter is less than 0.01, which shows that it performs better with a smaller complexity penalty.\
 
 Random Forest Tree model:\
@@ -260,6 +266,7 @@ Random Forest Tree model:\
 load("rf_tune_res.rda")
 autoplot(rf_tune_res)
 ```
+\
 In random forest tree models, the greater the number of trees and randomly selected predictors, the better the performance of the model is. However, the performance seems to drop with an increasing number of minimal node size. As we can see, starting from minimal node size 7, the best roc-auc starts dropping when the minimal node size increases.\
 
 Boosted Tree model:\
@@ -267,6 +274,7 @@ Boosted Tree model:\
 load("boost_tune_res.rda")
 autoplot(boost_tune_res)
 ```
+\
 The boost tree models clearly indicate that tuning the number of trees too high will lead to overfitting, which results in a lower roc-auc. When having a small minimal node size, the roc-auc is close to 1, meaning that it has a great measure of separability. \
 
 K-Nearest Neighbor model:\
@@ -274,6 +282,7 @@ K-Nearest Neighbor model:\
 load("knn_tune_res.rda")
 autoplot(knn_tune_res)
 ```
+\
 The performance of the KNN model achieves the best roc-auc with 5 nearest neighbors, and the more neighbors it has, the less the roc-auc is.\
 
 #### Selecting the best model
@@ -287,6 +296,7 @@ dt_result
 ```
 
 ```{r}
+load("decision_tree_wf.rda")
 set.seed(1029)
 dt_best_mod <- select_best(dt_tune_res, metric = "roc_auc")
 dt_tree_final <- finalize_workflow(decision_tree_wf, dt_best_mod)
@@ -294,6 +304,7 @@ dt_tree_final_fit <- fit(dt_tree_final, data = adapt_train) %>%
   extract_fit_engine() %>%
   rpart.plot()
 ```
+\
 The best performance model in our decision tree models achieves an roc_auc of 0.864.\
 
 Random Forest Tree model:\
@@ -302,8 +313,10 @@ rf_result <- collect_metrics(rf_tune_res) %>%
   dplyr::arrange(desc(mean))
 rf_result
 ```
+\
 The best performance model in our random forest tree models achieves an roc-auc of 0.963, much better than the decision tree model.\
 ```{r}
+load("rf_wf.rda")
 set.seed(1029)
 rf_best_mod <- select_best(rf_tune_res, metric = "roc_auc")
 rf_final <- finalize_workflow(rf_wf, rf_best_mod)
@@ -312,6 +325,7 @@ rf_final_fit %>%
   pull_workflow_fit() %>%
   vip()
 ```
+\
 From the vip plot, we can see that the most important predictor is `institution_type`, which corroborated our earlier assumption in the EDA section. `gender`, especially whether a student is a girl, is also a vital predictor here, and we have also tested this out in the EDA. The top seven important predicators have all been discussed in the exploratory data analysis part, which indicates that the data analysis we did earlier is pretty useful!\
 
 Boosted Tree model:\
@@ -323,6 +337,7 @@ bt_result
 The best performance model in our boosted tree models achieves an roc_auc pf 0.97, which is better than the best models of decision tree and random forest.\
 
 ```{r}
+load("boost_wf.rda")
 set.seed(1029)
 boost_best_mod <- select_best(boost_tune_res, metric = "roc_auc")
 boost_final_wf <- finalize_workflow(boost_wf, boost_best_mod)
@@ -336,6 +351,13 @@ knn_result <- collect_metrics(knn_tune_res) %>%
 knn_result
 ```
 The best performance model in the KNN models achieves the roc-auc of 0.925, which is better than the decision tree but worse than random forest and boosted tree.\
+```{r}
+load("knn_wf.rda")
+set.seed(1029)
+knn_best_mod <- select_best(knn_tune_res, metric = "roc_auc")
+knn_final_wf <- finalize_workflow(knn_wf, knn_best_mod)
+knn_final_fit <- fit(knn_final_wf, data = adapt_train)
+```
 
 #### Model Comparision
 After selecting the best parameters out of each model, let's now compare them and choose the best one out of them to be our final model!\
@@ -382,6 +404,7 @@ adapt_roc_plot <- augment(boost_final_fit, new_data = adapt_test) %>%
   autoplot()
 adapt_roc_plot
 ```
+\
 Our roc curve follows a nearly perfect trajectory that is up and to the left.\
 
 #### Confusion matrix
@@ -392,6 +415,7 @@ adapt_conf_mat <- augment(boost_final_fit, new_data = adapt_test) %>%
   autoplot(type = "heatmap")
 adapt_conf_mat
 ```
+\
 As we can see from the confusion matrix, the model is best at predicting the moderate `adaptivity_level`. This is because most students have a moderate `adaptivity_level`, so the model has more data of this category to train with. Except for the moderate level, it still did a pretty good job with low adaptivity. In comparison, it did not do very well with predicting high adaptivity, since the number of students who have a high `adaptivity_level` is the least.\
 
 #### Example Predictions
